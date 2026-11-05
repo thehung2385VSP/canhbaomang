@@ -1,0 +1,25 @@
+name: Build Python Kivy Android APK (from main.py)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-python-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Android APK with Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+          buildozer_version: master
+
+      - name: Upload Compiled .APK File
+        uses: actions/upload-artifact@v4
+        with:
+          name: TwinPing-NOC-Python-APK
+          path: bin/*.apk
