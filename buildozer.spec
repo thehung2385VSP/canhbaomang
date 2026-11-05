@@ -5,7 +5,7 @@ package.domain = org.twinping
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,db,wav,mp3
 version = 1.0.0
-requirements = python3,kivy
+requirements = python3==3.10,kivy
 orientation = landscape
 fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,ACCESS_WIFI_STATE,WAKE_LOCK,VIBRATE,FOREGROUND_SERVICE,POST_NOTIFICATIONS
