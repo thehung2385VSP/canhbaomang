@@ -1,0 +1,251 @@
+================================================================================
+TWINPING NOC — GÓI XÂY DỰNG FILE .APK ĐỘC LẬP CHO MÁY TÍNH BẢNG ANDROID
+Ngày tạo: 22:11:51 5/11/2026
+Thiết bị 1: Gateway Core Router 01 (8.8.8.8) | 4 gói / 200ms
+Thiết bị 2: Máy Chủ Sản Xuất 02 (LAN) (192.168.1.100) | 4 gói / 200ms
+================================================================================
+
+HƯỚNG DẪN LẤY FILE .APK CÀI ĐẶT ĐỘC LẬP (2 CÁCH NHANH NHẤT):
+
+CÁCH 1: BIÊN DỊCH TỰ ĐỘNG TRÊN ĐÁM MÂY (KHÔNG CẦN CÀI ANDROID STUDIO)
+1. Đẩy mã nguồn dự án này lên kho lưu trữ GitHub cá nhân của bạn.
+2. Tạo file ".github/workflows/build-apk.yml" với nội dung ở Mục [3] bên dưới.
+3. Nhấn "Run workflow" trong tab Actions của GitHub -> Sau 2 phút, tải trực tiếp
+   file "TwinPing-NOC-Android-Tablet-APK.zip" chứa file "app-debug.apk" về máy tính bảng để cài đặt!
+
+CÁCH 2: CHẠY LỆNH TỰ ĐỘNG TRÊN MÁY TÍNH (CÓ ANDROID SDK)
+Chạy trực tiếp file script "build-apk.sh" ở Mục [4] bên dưới để xuất ngay file APK.
+
+--------------------------------------------------------------------------------
+[1] FILE: android/app/src/main/AndroidManifest.xml
+--------------------------------------------------------------------------------
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.twinping.noc.tablet">
+
+    <!-- Quyền thực thi lệnh Ping ICMP/TCP thực tế và chạy ngầm trên Android Tablet -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="true"
+        android:label="TwinPing NOC"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|keyboardHidden|screenSize|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+
+--------------------------------------------------------------------------------
+[2] FILE: android/app/src/main/java/com/twinping/noc/tablet/MainActivity.java
+--------------------------------------------------------------------------------
+package com.twinping.noc.tablet;
+
+import android.os.Bundle;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.view.WindowManager;
+import androidx.appcompat.app.AppCompatActivity;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
+/**
+ * TwinPing NOC — Standalone Android Tablet APK Native Host
+ * Thực thi trực tiếp lệnh /system/bin/ping của nhân Linux Android
+ * Cấu hình mặc định:
+ * - Thiết bị 1: Gateway Core Router 01 (8.8.8.8) - 4 gói / 200ms
+ * - Thiết bị 2: Máy Chủ Sản Xuất 02 (LAN) (192.168.1.100) - 4 gói / 200ms
+ */
+public class MainActivity extends AppCompatActivity {
+    private WebView webView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Giữ màn hình máy tính bảng luôn sáng khi giám sát NOC
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        webView = new WebView(this);
+        setContentView(webView);
+
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setDatabaseEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setAllowFileAccess(true);
+
+        webView.addJavascriptInterface(new NativePingBridge(), "AndroidNativePing");
+        webView.setWebViewClient(new WebViewClient());
+
+        // Tải giao diện đóng gói cục bộ trong APK (assets/public/index.html)
+        webView.loadUrl("file:///android_asset/public/index.html");
+    }
+
+    public class NativePingBridge {
+        @JavascriptInterface
+        public String executeNativePing(String ipAddress, int packetCount, int intervalMs, int timeoutMs) {
+            try {
+                float intervalSec = Math.max(0.2f, intervalMs / 1000.0f);
+                int timeoutSec = Math.max(1, timeoutMs / 1000);
+                String cmd = String.format(
+                    "/system/bin/ping -c %d -i %.2f -W %d %s",
+                    packetCount, intervalSec, timeoutSec, ipAddress
+                );
+
+                Process process = Runtime.getRuntime().exec(cmd);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+                int exitCode = process.waitFor();
+
+                JSONObject result = new JSONObject();
+                result.put("exitCode", exitCode);
+                result.put("rawOutput", output.toString());
+                result.put("ipAddress", ipAddress);
+                return result.toString();
+            } catch (Exception e) {
+                return "{\"error\":\"" + e.getMessage() + "\"}";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+[3] FILE: .github/workflows/build-apk.yml (TỰ ĐỘNG XUẤT FILE .APK TRÊN GITHUB)
+--------------------------------------------------------------------------------
+name: Build TwinPing Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java JDK 21 for Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Dependencies & Build Bundle
+        run: |
+          npm install
+          npm run build
+          npx --yes @capacitor/cli@latest init "TwinPing NOC" "com.twinping.noc.tablet" --web-dir dist || true
+          npm install @capacitor/core @capacitor/android
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Compile Standalone Android APK (Gradle AssembleDebug)
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload Ready-to-Install APK File
+        uses: actions/upload-artifact@v4
+        with:
+          name: TwinPing-NOC-Android-Tablet-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+
+--------------------------------------------------------------------------------
+[4] FILE: build-apk.sh (SCRIPT ĐÓNG GÓI .APK 1 LỆNH)
+--------------------------------------------------------------------------------
+#!/usr/bin/env bash
+set -e
+echo "======================================================"
+echo "  TWINPING NOC - TRÌNH ĐÓNG GÓI FILE .APK ĐỘC LẬP"
+echo "======================================================"
+echo "1. Đang đóng gói giao diện & cơ sở dữ liệu IndexedDB..."
+npm install
+npm run build
+
+echo "2. Đang khởi tạo dự án Android Native (Capacitor)..."
+npm install @capacitor/core @capacitor/cli @capacitor/android
+npx cap init "TwinPing NOC" "com.twinping.noc.tablet" --web-dir dist || true
+npx cap add android || true
+npx cap sync android
+
+echo "3. Đang biên dịch file cài đặt TwinPing-NOC-debug.apk..."
+cd android
+chmod +x gradlew
+./gradlew assembleDebug
+
+echo "✅ HOÀN TẤT! File APK cài đặt độc lập nằm tại:"
+echo "   android/app/build/outputs/apk/debug/app-debug.apk"
+
+
+--------------------------------------------------------------------------------
+[5] FILE: capacitor.config.json (CẤU HÌNH ĐỒNG BỘ 2 IP HIỆN TẠI)
+--------------------------------------------------------------------------------
+{
+  "appId": "com.twinping.noc.tablet",
+  "appName": "TwinPing NOC",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#2563EB"
+    }
+  },
+  "presetDefaults": {
+    "node1": {
+      "name": "Gateway Core Router 01",
+      "ip": "8.8.8.8",
+      "packetCount": 4,
+      "packetIntervalMs": 200,
+      "scanFrequencySec": 5
+    },
+    "node2": {
+      "name": "Máy Chủ Sản Xuất 02 (LAN)",
+      "ip": "192.168.1.100",
+      "packetCount": 4,
+      "packetIntervalMs": 200,
+      "scanFrequencySec": 5
+    },
+    "telegramConfigured": true,
+    "originUrl": "https://ais-dev-tbpq3tk47fznnggjchzlsh-514376643007.asia-southeast1.run.app"
+  }
+}
